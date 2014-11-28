@@ -99,6 +99,8 @@ extern uint32 cpu_opt;
 extern UNIT cpu_unit;
 #endif
 
+#include <assert.h>
+
 /* Constants */
 
 #define RL_NUMWD        (128)                           /* words/sector */
@@ -545,7 +547,7 @@ max 17ms for 1 track seek w/head switch
             rlmp = (uint16)(uptr->STAT | (uptr->TRK & RLDS_HD));
             if (uptr->flags & UNIT_RL02)
                 rlmp |= RLDS_RL02;
-            if (uptr->flags & UNIT_WPRT)
+            if ((uptr->flags & UNIT_WPRT) == UNIT_WPRT)
                 rlmp |= RLDS_WLK;
             if (uptr->flags & (UNIT_DIS | UNIT_OFFL)) {
                 rlmp |= RLDS_DSE;
@@ -830,7 +832,7 @@ if ((uptr->flags & UNIT_ATT) == 0) {                    /* attached? */
     return IORETURN (rl_stopioe, SCPE_UNATT);
     }
 
-if ((uptr->FNC == RLCS_WRITE) && (uptr->flags & UNIT_WPRT)) {
+if ((uptr->FNC == RLCS_WRITE) && (uptr->flags & UNIT_WPRT) == UNIT_WPRT) {
     uptr->STAT |= RLDS_WGE;                             /* write and locked */
     rl_set_done (RLCS_ERR | RLCS_DRE);
     return SCPE_OK;
@@ -878,15 +880,28 @@ wc = 0200000 - rlmp;                                    /* get true wc */
 
 if (wc > maxwc)                                         /* track overrun? */
     wc = maxwc;
-err = fseek (uptr->fileref, da * sizeof (int16), SEEK_SET);
+// err = fseek (uptr->fileref, da * sizeof (int16), SEEK_SET);
+err = 0;
+
+uint32 ds = uptr->capac*sizeof(int16);
 
 if (DEBUG_PRS (rl_dev))
     fprintf (sim_deb, ">>RL svc: cyl %d, sect %d, wc %d, maxwc %d, err %d\n",
     GET_CYL (rlda), GET_SECT (rlda), wc, maxwc, err);
 
     if ((uptr->FNC >= RLCS_READ) && (err == 0)) {       /* read (no hdr)? */
-        i = fxread (rlxb, sizeof (int16), wc, uptr->fileref);
-        err = ferror (uptr->fileref);
+        // i = fxread (rlxb, sizeof (int16), wc, uptr->fileref);
+        // err = ferror (uptr->fileref);
+
+        assert(da*sizeof(int16) <= ds);
+        // assert(da*sizeof(int16) + sizeof(int16)*wc <= uptr->hwmark);
+        // i = wc;
+        i = ds - da*sizeof(int16);
+        if (i < 0) i = 0;
+        if (i > sizeof(int16)*wc) i=sizeof(int16)*wc;
+        assert(da*sizeof(int16) + i <= ds);
+        memcpy(rlxb, (char*)uptr->filebuf + da*sizeof(int16), i);
+        
         for ( ; i < wc; i++)                            /* fill buffer */
             rlxb[i] = 0;
         if ((t = Map_WriteW (ma, wc << 1, rlxb))) {     /* store buffer */
@@ -905,15 +920,36 @@ if ((uptr->FNC == RLCS_WRITE) && (err == 0)) {          /* write? */
         awc = (wc + (RL_NUMWD - 1)) & ~(RL_NUMWD - 1);  /* clr to */
         for (i = wc; i < awc; i++)                      /* end of blk */
             rlxb[i] = 0;
-        fxwrite (rlxb, sizeof (int16), awc, uptr->fileref);
-        err = ferror (uptr->fileref);
+        // fxwrite (rlxb, sizeof (int16), awc, uptr->fileref);
+        // err = ferror (uptr->fileref);
+
+        // assert(da*sizeof(int16) + sizeof(int16)*awc <= uptr->hwmark);
+        // memcpy((char*)uptr->filebuf + da*sizeof(int16), rlxb, sizeof(int16)*awc);
+        // printf("w %d - %lu vs %u\n", awc, da*sizeof(int16), ds);
+        assert(da*sizeof(int16) <= ds);
+        i = ds - da*sizeof(int16);
+        if (i < 0) i = 0;
+        if (i > sizeof(int16)*awc) i=sizeof(int16)*awc;
+        assert(da*sizeof(int16) + i <= ds);
+        // printf("%d %lu\n", i, da*sizeof(int16) + i);
+        memcpy((char*)uptr->filebuf + da*sizeof(int16), rlxb, i);
+
+
         }
     }                                                   /* end write */
 
 else
 if ((uptr->FNC == RLCS_WCHK) && (err == 0)) {           /* write check? */
-    i = fxread (rlxb, sizeof (int16), wc, uptr->fileref);
-    err = ferror (uptr->fileref);
+    
+    // i = fxread (rlxb, sizeof (int16), wc, uptr->fileref);
+    // err = ferror (uptr->fileref);
+
+    i = ds - da*sizeof(int16);
+    if (i < 0) i = 0;
+    if (i > sizeof(int16)*wc) i=sizeof(int16)*wc;
+    assert(da*sizeof(int16) + i <= ds);
+    memcpy(rlxb, (char*)uptr->filebuf + da*sizeof(int16), i);
+
     for ( ; i < wc; i++)                                /* fill buffer */
         rlxb[i] = 0;
     awc = wc;                                           /* save wc */
@@ -1004,6 +1040,7 @@ uint32 p;
 t_stat r;
 
 uptr->capac = (uptr->flags & UNIT_RL02)? RL02_SIZE: RL01_SIZE;
+
 r = attach_unit (uptr, cptr);                           /* attach unit */
 if (r != SCPE_OK)                                       /* error? */
     return r;
@@ -1028,6 +1065,12 @@ else {
     uptr->flags = uptr->flags & ~UNIT_RL02;
     uptr->capac = RL01_SIZE;
     }
+
+
+uptr->filebuf = calloc(1, uptr->capac*sizeof(int16));
+size_t rr = sim_fread(uptr->filebuf, sizeof(int16), uptr->capac, uptr->fileref);
+assert(rr == uptr->capac);
+
 return SCPE_OK;
 }
 

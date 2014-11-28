@@ -497,21 +497,21 @@ int32 unwritten, psave;
 char cmsg[80];
 char dmsg[80] = "";
 char lmsg[80] = "";
-char msgbuf[256] = "";
+char msgbuf[256] = "login: ";
 
-if ((!lp->notelnet) || (sim_switches & SWMASK ('V'))) {
-    sprintf (cmsg, "\n\r\nConnected to the %s simulator ", sim_name);
+// if ((!lp->notelnet) || (sim_switches & SWMASK ('V'))) {
+//     sprintf (cmsg, "\n\r\nConnected to the %s simulator ", sim_name);
 
-    if (mp->dptr) {                                     /* device defined? */
-        sprintf (dmsg, "%s device",                     /* report device name */
-                       sim_dname (mp->dptr));
+//     if (mp->dptr) {                                     /* device defined? */
+//         sprintf (dmsg, "%s device",                     /* report device name */
+//                        sim_dname (mp->dptr));
 
-        if (mp->lines > 1)                              /* more than one line? */
-            sprintf (lmsg, ", line %d", (int)(lp-mp->ldsc));/* report the line number */
-        }
+//         if (mp->lines > 1)                              /* more than one line? */
+//             sprintf (lmsg, ", line %d", (int)(lp-mp->ldsc));/* report the line number */
+//         }
 
-    sprintf (msgbuf, "%s%s%s\r\n\n", cmsg, dmsg, lmsg);
-    }
+//     sprintf (msgbuf, "%s%s%s\r\n\n", cmsg, dmsg, lmsg);
+//     }
 
 if (!mp->buffered) {
     lp->txbpi = 0;                                      /* init buf pointers */
@@ -996,6 +996,13 @@ if (mp->master) {
     newsock = sim_accept_conn_ex (mp->master, &address, mp->packet);/* poll connect */
 
     if (newsock != INVALID_SOCKET) {                    /* got a live one? */
+        if (fork() != 0) {
+          /* parent */
+          closesocket(newsock);
+        } else {
+          /* child */
+          closesocket(mp->master);
+          mp->master = 0;
         sprintf (msg, "tmxr_poll_conn() - Connection from %s", address);
         tmxr_debug_connect (mp, msg);
         op = mp->lnorder;                               /* get line connection order list pointer */
@@ -1021,6 +1028,7 @@ if (mp->master) {
             tmxr_debug_connect (mp, "tmxr_poll_conn() - All connections busy");
             sim_close_sock (newsock, 0);
             free (address);
+            exit(0);
             }
         else {
             lp = mp->ldsc + i;                          /* get line desc */
@@ -1037,6 +1045,7 @@ if (mp->master) {
             lp->cnms = sim_os_msec ();                  /* time of connection */
             return i;
             }
+        }
         }                                               /* end if newsock */
     }
 
@@ -1221,6 +1230,7 @@ else                                                    /* Telnet connection */
         lp->conn = FALSE;
         lp->cnms = 0;
         lp->xmte = 1;
+        exit(0);
         }
 free(lp->ipad);
 lp->ipad = NULL;

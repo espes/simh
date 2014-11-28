@@ -739,6 +739,7 @@ load_ws2 ();
 #if defined (SIGPIPE)
 signal (SIGPIPE, SIG_IGN);                              /* no pipe signals */
 #endif
+signal(SIGCHLD, SIG_IGN);
 }
 
 void sim_cleanup_sock (void)
